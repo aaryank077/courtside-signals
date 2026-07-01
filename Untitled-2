@@ -1,0 +1,10 @@
+pip install nba_api
+
+from nba_api.stats.endpoints import playercareerstats
+from nba_api.stats.endpoints import leaguestandings
+from nba_api.stats.static import players, teams
+
+games(player_id, player_name, date, opponent, season, pts, reb, ast, stl, blk,
+    fg_pct, fg3_pct, ft_pct, minutes, game_score, team, home_away) {
+        
+    }
