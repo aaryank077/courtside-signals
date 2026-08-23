@@ -4,6 +4,7 @@ from pandas import DataFrame
 from nba_api.stats.static import players
 from nba_api.stats.endpoints import playercareerstats, playergamelog, leaguedashplayerstats
 import time
+import sqlite3
 
 """
 This responds to 5 templatized queries primarily using nba_api 
@@ -28,34 +29,26 @@ def convert_season_id(season):
 
 player = players.find_players_by_full_name("Stephen Curry")
 
-career = playercareerstats.PlayerCareerStats(player[0]['id'])
-df = career.get_data_frames()[0]
+conn = sqlite3.connect('courtside.db')
+df = pd.read_sql("SELECT * FROM games WHERE player_name = 'Stephen Curry'", conn)
 
 print("Query 1: Steph Curry's best 3-point shooting season with at least 400 attempts")
-print((df[(df['FG3A'] > 400)].sort_values('FG3_PCT', ascending=False)).iloc[0])
+print((df[(df['fg3a'] > 400)].sort_values('fg3_pct', ascending=False)).iloc[0])
 
 ### QUERY 2
 
 player = players.find_players_by_full_name("Luka Dončić")
-"""
-career = playercareerstats.PlayerCareerStats(player_id=player[0]['id'])
-career_df = career.get_data_frames()[0]
-"""
 
 
 seasons = ['2018-19', '2019-20', '2020-21', '2021-22', '2022-23', '2023-24', 
             '2024-25', '2025-26']
 
-all_games = []
-for season in seasons:
-    log = playergamelog.PlayerGameLog(player_id=player[0]['id'], season=season)
-    all_games.append(log.get_data_frames()[0])
-
-df = pd.concat(all_games)
+conn = sqlite3.connect('courtside.db')
+df = pd.read_sql("SELECT * FROM games WHERE player_name = 'Luka Dončić'", conn)
 
 print("How many 30-point games does Luka have against the Lakers?")
-print(len(df[(df['PTS'] >= 30) & df['MATCHUP'].str.contains('LAL') & 
-                ~df['MATCHUP'].str.startswith('LAL')]))
+print(len(df[(df['pts'] >= 30) & df['matchup'].str.contains('lal') & 
+                ~df['matchup'].str.startswith('lal')]))
 
 ### QUERY 3
 
@@ -63,25 +56,14 @@ player = players.find_players_by_full_name("Nikola Jokić")
 seasons = ['2015-16', '2016-17', '2017-18', '2018-19', '2019-20', '2020-21', 
            '2021-22', '2022-23', '2023-24', '2024-25', '2025-26']
 
-all_games = []
-for season in seasons:
-    for attempt in range(3):
-        try:
-            log = playergamelog.PlayerGameLog(player_id=player[0]['id'], season=season, timeout=10)
-            all_games.append(log.get_data_frames()[0])
-            break
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed for {season}: {e}")
-            time.sleep(2)
-    time.sleep(1)
-
-df = pd.concat(all_games)
+conn = sqlite3.connect('courtside.db')
+df = pd.read_sql("SELECT * FROM games WHERE player_name = 'Nikola Jokić'", conn)
 
 print("What are Nikola Jokić's rebound numbers against the Celtics?")
-matchups = df[df['MATCHUP'].str.contains('BOS')][['SEASON_ID', 'GAME_DATE', 
-                                                  'REB']]
+matchups = df[df['matchup'].str.contains('bos')][['season_id', 'game_date', 
+                                                  'reb']]
 print(matchups)
-print("Average: ", round(matchups['REB'].mean(), 1))
+print("Average: ", round(matchups['reb'].mean(), 1))
 
 ### QUERY 4
 stats = leaguedashplayerstats.LeagueDashPlayerStats(season='2025-26')
