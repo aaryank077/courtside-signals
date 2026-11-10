@@ -13,14 +13,15 @@ Intent categories: best_season, game_count, player_averages, league_leaders,
 career_stat.
 """
 
+import math
 import sqlite3
-import time
 import unicodedata
 from pathlib import Path
 
 import pandas as pd
 from nba_api.stats.static import players
-from nba_api.stats.endpoints import playercareerstats
+
+from engine.fetch import ensure_league_stats, ensure_player
 
 DB_PATH = Path(__file__).resolve().parent.parent / "courtside.db"
 
@@ -109,6 +110,8 @@ def _season_id(label):
 def _game_filters(params):
     """WHERE clauses shared by the game-log handlers."""
     player = _resolve_player(params.get("player"))
+    with _connect() as conn:
+        ensure_player(conn, player)
     clauses, args = ["player_id = ?"], [player["id"]]
 
     if params.get("opponent"):
@@ -522,7 +525,8 @@ def league_leaders(params):
     """League leaders this season (league_stats table).
 
     params: stat (default "pts"), per ("game" default, or "total"),
-    min_minutes (minutes per game), min_games, min ({stat: season total}),
+    min_minutes (minutes per game), min_games (default: half the most games
+    anyone has played; 0 turns it off), min ({stat: season total}),
     team (abbreviation), limit (default 10).
     """
     stat = _check_stat(params.get("stat", "pts"),
@@ -532,10 +536,11 @@ def league_leaders(params):
         raise QueryError("per should be 'game' or 'total'.")
 
     with _connect() as conn:
+        ensure_league_stats(conn)
         try:
             df = pd.read_sql("SELECT * FROM league_stats", conn)
         except pd.errors.DatabaseError:
-            raise QueryError("League stats aren't loaded yet. Run seed.py first.")
+            raise QueryError("League stats aren't loaded, and nba_api couldn't be reached.")
 
     loaded = df["season"].iloc[0] if "season" in df and len(df) else None
     if params.get("season") and loaded and params["season"] != loaded:
@@ -548,8 +553,13 @@ def league_leaders(params):
         df = df[df["team_abbreviation"] == params["team"].upper()]
     if params.get("min_minutes"):
         df = df[df["mpg"] >= params["min_minutes"]]
-    if params.get("min_games"):
-        df = df[df["gp"] >= params["min_games"]]
+    # Unless asked otherwise, require half the games the busiest player has
+    # played, so someone with 3 great games doesn't top a per-game list.
+    min_games = params.get("min_games")
+    if min_games is None and per == "game":
+        min_games = math.ceil(df["gp"].max() * 0.5)
+    if min_games:
+        df = df[df["gp"] >= min_games]
     df = _apply_minimums(df, params.get("min"))
     if df.empty:
         raise QueryError("No players meet those filters.")
@@ -571,36 +581,25 @@ def league_leaders(params):
     season = df["season"].iloc[0] if "season" in df else "this season"
     label = STAT_LABELS.get(stat, stat.upper()) if per == "game" else f"total {stat}"
     answer = (f"{top['player_name']} ({top['team_abbreviation']}) leads in {label} "
-              f"in {season} with {_fmt(stat, top[value_col])}.")
+              f"in {season} with {_fmt(stat, top[value_col])}")
+    answer += f" (min {min_games} games)." if min_games else "."
     return {"answer": answer, "table": table,
             "data": {"leader": top["player_name"], "value": float(top[value_col])}}
 
 
 def _career_totals(player):
-    """Career totals row, fetched from nba_api and cached if not in the db."""
+    """Career totals row; fetched from nba_api the first time a player is asked about."""
     with _connect() as conn:
+        ensure_player(conn, player)
         try:
             df = pd.read_sql("SELECT * FROM career_totals WHERE player_id = ?",
                              conn, params=[player["id"]])
         except pd.errors.DatabaseError:
             df = pd.DataFrame()
-        if not df.empty:
-            return df.iloc[0]
-
-        try:
-            fetched = playercareerstats.PlayerCareerStats(
-                player_id=player["id"], timeout=10).get_data_frames()[1]
-        except Exception as e:
-            raise QueryError(f"Couldn't fetch career stats for "
-                             f"{player['full_name']}: {e}")
-        if fetched.empty:
-            raise QueryError(f"No career stats for {player['full_name']}.")
-        fetched = fetched.copy()
-        fetched.insert(1, "PLAYER_NAME", player["full_name"])
-        fetched.columns = [c.lower() for c in fetched.columns]
-        fetched.to_sql("career_totals", conn, if_exists="append", index=False)
-        time.sleep(0.5)
-        return fetched.iloc[0]
+    if df.empty:
+        raise QueryError(f"No career stats stored for {player['full_name']}, "
+                         "and nba_api couldn't be reached.")
+    return df.iloc[0]
 
 
 def career_stat(params):

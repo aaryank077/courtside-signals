@@ -4,11 +4,17 @@
     venv/bin/python -m pytest tests        (if pytest is installed)
 
 PARSE_CASES only need nba_api's built-in player list (no network). The
-ANSWER_CASES also read courtside.db and are skipped if it hasn't been seeded.
+ANSWER_CASES also read courtside.db (run seed.py first) and are skipped if it
+hasn't been seeded. Tests never call nba_api.
 """
 
+import os
+import re
 import sys
 from pathlib import Path
+
+# answer from what's stored; never call nba_api during tests
+os.environ["COURTSIDE_OFFLINE"] = "1"
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -24,7 +30,7 @@ PARSE_CASES = [
     ("What are Jokić's rebound numbers against the Celtics?",
      "player_averages", {"player": "Nikola Jokić", "stats": ["reb"], "opponent": "BOS"}),
     ("Who leads the league in assists per game this season among players averaging 30+ minutes?",
-     "league_leaders", {"stat": "ast", "min_minutes": 30, "season": "2025-26"}),
+     "league_leaders", {"stat": "ast", "min_minutes": 30, "season": "2026-27"}),
     # reworded and new questions
     ("Has Luka ever dropped 40 on the Clippers?",
      "game_count", {"player": "Luka Dončić", "conditions": {"pts": 40}, "opponent": "LAC"}),
@@ -32,7 +38,7 @@ PARSE_CASES = [
      "game_count", {"player": "Luka Dončić", "conditions": {"pts": 30}, "opponent": "LAL"}),
     ("How many triple-doubles does Jokic have this season?",
      "game_count", {"player": "Nikola Jokić", "conditions": {"pts": 10, "reb": 10, "ast": 10},
-                    "season": "2025-26"}),
+                    "season": "2026-27"}),
     ("How many games with 10+ assists and 10+ rebounds does Luka have on the road?",
      "game_count", {"player": "Luka Dončić", "conditions": {"ast": 10, "reb": 10},
                     "home_away": "away"}),
@@ -58,7 +64,7 @@ PARSE_CASES = [
     ("who has the most steals",
      "league_leaders", {"stat": "stl"}),
     ("Who scored the most total points this season?",
-     "league_leaders", {"stat": "pts", "season": "2025-26", "per": "total"}),
+     "league_leaders", {"stat": "pts", "season": "2026-27", "per": "total"}),
     ("Which Lakers player leads in rebounds?",
      "league_leaders", {"stat": "reb", "team": "LAL"}),
     ("Career-high Steph Curry",
@@ -84,7 +90,7 @@ PARSE_CASES = [
      "record", {"player": "Stephen Curry", "opponent": "LAL"}),
     ("Jokic win percentage in triple-doubles this season",
      "record", {"player": "Nikola Jokić", "conditions": {"pts": 10, "reb": 10, "ast": 10},
-                "season": "2025-26"}),
+                "season": "2026-27"}),
     # streak
     ("Jokic's longest streak of triple-doubles",
      "streak", {"player": "Nikola Jokić", "conditions": {"pts": 10, "reb": 10, "ast": 10}}),
@@ -99,26 +105,31 @@ PARSE_CASES = [
      "recent_games", {"player": "Nikola Jokić", "n": 5, "stats": ["reb"]}),
     # seasons
     ("Curry points last season",
-     "player_averages", {"player": "Stephen Curry", "stats": ["pts"], "season": "2024-25"}),
+     "player_averages", {"player": "Stephen Curry", "stats": ["pts"], "season": "2025-26"}),
     ("Who leads in assists last season?",
-     "league_leaders", {"stat": "ast", "season": "2024-25"}),
+     "league_leaders", {"stat": "ast", "season": "2025-26"}),
     # things it should not try to answer
     ("what is the meaning of life", "unknown", {}),
     ("who is better, the heat or the magic", "unknown", {}),
 ]
 
 # question -> text the answer must contain (needs a seeded courtside.db)
+# question -> regex the answer must match. Stats change as games are played,
+# so these stick to settled history or check the shape of the answer.
 ANSWER_CASES = [
-    ("Steph Curry's best 3-point shooting season with at least 400 attempts", "2018-19"),
-    ("How many 30-point games does Luka have against the Lakers?", "has 8 games"),
-    ("What are Jokić's rebound numbers against the Celtics?", "11.4 RPG"),
-    ("Career-high Steph Curry", "most pts in a game is 62"),
-    ("Curry vs Luka points per game", "PPG: Dončić 29.2 vs Curry 27.2"),
-    ("What's Luka's record when he scores 40+?", "46-16"),
-    ("Jokic's longest streak of triple-doubles", "is 5"),
-    ("Curry's last 10 games", "last 10 games"),
-    ("Who leads in assists last season?", "only loaded for 2025-26"),
-    ("what is the meaning of life", "not capable"),
+    ("Steph Curry's best 3-point shooting season with at least 400 attempts",
+     r"was 2015-16: 45\.4% \(402/886\)"),
+    ("Career-high Steph Curry", r"most pts in a game is 62, on 2021-01-03"),
+    ("Curry's 2015-16 points per game", r"30\.1 PPG over 79 games"),
+    ("How many 30-point games does Luka have against the Lakers?", r"has \d+ games with 30\+ pts vs LAL"),
+    ("What are Jokić's rebound numbers against the Celtics?", r"vs BOS: \d+\.\d RPG"),
+    ("Curry vs Luka points per game", r"PPG: (Dončić|Curry) \d+\.\d vs (Dončić|Curry) \d+\.\d"),
+    ("What's Luka's record when he scores 40+?", r"teams are \d+-\d+ \(\.\d{3}\) in games with 40\+ pts"),
+    ("Jokic's longest streak of triple-doubles", r"is \d+, from \d{4}-\d\d-\d\d"),
+    ("Curry's last 10 games", r"last 10 games \("),
+    ("Who leads in assists last season?", r"only loaded for 2026-27"),
+    ("who leads the league in points", r"leads in PPG in 2026-27 with [\d.]+ \(min \d+ games\)"),
+    ("what is the meaning of life", r"not capable"),
 ]
 
 
@@ -137,7 +148,7 @@ def test_answer_cases():
         return
     for question, expected in ANSWER_CASES:
         answer = ask(question)["answer"]
-        assert expected in answer, f"{question!r}: {answer!r} doesn't contain {expected!r}"
+        assert re.search(expected, answer), f"{question!r}: {answer!r} doesn't match {expected!r}"
 
 
 if __name__ == "__main__":
