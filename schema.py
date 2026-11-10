@@ -1,4 +1,7 @@
 import sqlite3
+from pathlib import Path
+
+DB_PATH = Path(__file__).resolve().parent / "courtside.db"
 
 CREATE_GAMES_TABLE = """
 CREATE TABLE IF NOT EXISTS games (
@@ -34,7 +37,7 @@ CREATE TABLE IF NOT EXISTS games (
 """
 
 if __name__ == "__main__":
-    conn = sqlite3.connect('courtside.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(CREATE_GAMES_TABLE)
     conn.commit()
