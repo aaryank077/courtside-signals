@@ -7,7 +7,7 @@ failed_queries uses a word the parser didn't know.
 
 # The season the league_stats table holds and "this season" refers to.
 # seed.py imports this, so change it here when a new season starts.
-CURRENT_SEASON = "2025-26"
+CURRENT_SEASON = "2026-27"
 
 # Team abbreviation -> words fans use for it. "la" / "los angeles" are left out
 # on purpose because they could mean the Lakers or the Clippers.
