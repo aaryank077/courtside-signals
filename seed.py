@@ -1,14 +1,19 @@
-"""Pre-load players into courtside.db.
+"""Pre-load data into courtside.db.
 
-You don't have to run this: any player a question asks about is fetched the
-first time (see engine/fetch.py). Seeding just does that work up front so the
-first questions are fast. Safe to re-run; it only adds what's missing.
+    venv/bin/python seed.py             # pre-load a few players and league stats
+    venv/bin/python seed.py --all-nba   # load All-NBA selections and player ages (~4 min once)
+
+Pre-loading players is optional: any player a question asks about is fetched
+the first time (see engine/fetch.py). The All-NBA load is needed for
+superstar / All-NBA questions. Safe to re-run; it only adds what's missing.
 """
 
 import sqlite3
+import sys
 
 from nba_api.stats.static import players
 
+from engine import allnba
 from engine.fetch import ensure_league_stats, ensure_player
 from schema import CREATE_GAMES_TABLE, DB_PATH
 
@@ -27,5 +32,16 @@ def seed():
     print("Done.")
 
 
+def seed_all_nba():
+    conn = sqlite3.connect(DB_PATH)
+    print("Loading All-NBA selections and player bios...")
+    allnba.load(conn)
+    conn.close()
+    print("Done.")
+
+
 if __name__ == "__main__":
-    seed()
+    if "--all-nba" in sys.argv:
+        seed_all_nba()
+    else:
+        seed()

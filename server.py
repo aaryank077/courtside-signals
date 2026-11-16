@@ -44,6 +44,7 @@ def answer_json(question):
         "answer": result["answer"],
         "columns": columns,
         "rows": rows,
+        "chart": (result.get("data") or {}).get("chart"),
     }
 
 

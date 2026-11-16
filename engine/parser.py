@@ -208,6 +208,52 @@ def _thresholds(pairs, pct_stat=None):
     return conditions, extra
 
 
+def _decade(text):
+    """'the 90s' -> 1990, '2010s' -> 2010, "80's" -> 1980."""
+    m = re.search(r"\b(19|20)?(\d)0 ?s\b", text)
+    if not m:
+        return None
+    if m.group(1):
+        return int(m.group(1) + m.group(2) + "0")
+    digit = int(m.group(2))
+    return 2000 + digit * 10 if digit <= 2 else 1900 + digit * 10
+
+
+def _all_nba_params(x, has):
+    params = {}
+    if has(r"\bsuperstars?\b|\bstars\b"):
+        params["superstars"] = True
+    for pattern, team in ((r"\b(1st|first) team\b", "1st"), (r"\b(2nd|second) team\b", "2nd"),
+                          (r"\b(3rd|third) team\b", "3rd")):
+        if has(pattern):
+            params["team"] = team
+    if x["season"]:
+        params["season"] = x["season"]
+    decade = _decade(x["text"])
+    if decade:
+        params["decade"] = decade
+    if x["limit"]:
+        params["limit"] = x["limit"]
+
+    if has(r"\bcareer (length|lengths|span)\b|\bhow long\b|\bcareers?\b.*\b(last|lasted|long|longer|shorter)\b"):
+        view = "career_length"
+    elif has(r"\boldest\b"):
+        view = "oldest"
+    elif has(r"\byoungest\b"):
+        view = "youngest"
+    elif x["player"]:
+        view = "player"
+        params["player"] = x["player"]
+    elif has(r"\b(older|younger|age|ages|aging|ageing|how old)\b"):
+        view = "season" if x["season"] else "age_trend"
+    elif x["season"]:
+        view = "season"
+    else:
+        view = "most"
+    params["view"] = view
+    return params
+
+
 # ---------------------------------------------------------------- intent
 
 def parse(question):
@@ -224,6 +270,10 @@ def parse(question):
         if x["home_away"]:
             params["home_away"] = x["home_away"]
         return params
+
+    # All-NBA / "superstars" questions (All-NBA selections stand in for superstars)
+    if has(r"\ball nba\b|\bsuperstars?\b|\bstars\b"):
+        return "all_nba", _all_nba_params(x, has)
 
     triple_double = has(r"\btriple doubles?\b")
 
