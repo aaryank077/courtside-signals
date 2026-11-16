@@ -22,6 +22,7 @@ import pandas as pd
 from nba_api.stats.static import players
 
 from engine.fetch import ensure_league_stats, ensure_player
+from engine.vocab import CURRENT_SEASON
 
 DB_PATH = Path(__file__).resolve().parent.parent / "courtside.db"
 
@@ -635,7 +636,176 @@ def career_stat(params):
     return {"answer": answer, "table": pd.DataFrame(records), "data": {"games": gp}}
 
 
+# ---------------------------------------------------------------- All-NBA
+
+ALL_NBA_VIEWS = ("age_trend", "oldest", "youngest", "season", "player", "most",
+                 "career_length")
+
+
+def _all_nba_frame(params):
+    """All-NBA selections with each player's age on Feb 1 of that season."""
+    with _connect() as conn:
+        try:
+            df = pd.read_sql(
+                "SELECT a.season, a.start_year, a.team, a.player_name, a.player_id, "
+                "b.birthdate, b.from_year, b.to_year "
+                "FROM all_nba a LEFT JOIN player_bio b ON a.player_id = b.player_id", conn)
+        except pd.errors.DatabaseError:
+            raise QueryError("All-NBA data isn't loaded yet. Run: "
+                             "venv/bin/python seed.py --all-nba")
+
+    birth = pd.to_datetime(df["birthdate"], errors="coerce")
+    feb1 = pd.to_datetime(df["start_year"].add(1).astype(str) + "-02-01")
+    df["age"] = ((feb1 - birth).dt.days / 365.25).round(1)
+    df["decade"] = df["start_year"] // 10 * 10
+
+    if params.get("team"):
+        df = df[df["team"] == params["team"]]
+    if params.get("decade"):
+        df = df[df["decade"] == int(params["decade"])]
+    if params.get("season"):
+        df = df[df["season"] == params["season"]]
+    if params.get("player"):
+        player = _resolve_player(params["player"])
+        df = df[df["player_id"] == player["id"]]
+        params = {**params, "_player_name": player["full_name"]}
+    if df.empty:
+        raise QueryError(f"No All-NBA selections{_all_nba_scope(params)}.")
+    return df, params
+
+
+def _all_nba_scope(params):
+    parts = []
+    if params.get("team"):
+        parts.append(f"on the {params['team']} team")
+    if params.get("season"):
+        parts.append(f"in {params['season']}")
+    if params.get("decade"):
+        parts.append(f"in the {params['decade']}s")
+    if params.get("_player_name"):
+        parts.append(f"for {params['_player_name']}")
+    return (" " + " ".join(parts)) if parts else ""
+
+
+def all_nba(params):
+    """All-NBA questions. params: view (one of ALL_NBA_VIEWS), and optional
+    team ("1st"/"2nd"/"3rd"), season ("2025-26"), decade (1990), player, limit.
+    "superstars" in a question is treated as All-NBA selections.
+    """
+    view = params.get("view", "age_trend")
+    if view not in ALL_NBA_VIEWS:
+        raise QueryError(f"Unknown All-NBA view '{view}'.")
+    df, params = _all_nba_frame(params)
+    scope = _all_nba_scope(params)
+    limit = int(params.get("limit", 10))
+    lead = "Using All-NBA selections as superstars: " if params.get("superstars") else ""
+
+    if view == "age_trend":
+        aged = df.dropna(subset=["age"])
+        by_season = aged.groupby("season", as_index=False)["age"].mean()
+        by_decade = (aged.groupby("decade")
+                     .agg(selections=("age", "size"), avg_age=("age", "mean"))
+                     .reset_index())
+        by_decade["avg_age"] = by_decade["avg_age"].round(1)
+        by_decade.insert(0, "era", by_decade.pop("decade").astype(str) + "s")
+
+        seasons = sorted(aged["season"].unique())
+        recent_seasons = seasons[-5:]
+        recent = aged[aged["season"].isin(recent_seasons)]["age"].mean()
+        before = aged[~aged["season"].isin(recent_seasons)]["age"].mean()
+        diff = recent - before
+        verdict = ("Yes, a bit older" if diff > 0.4 else
+                   "No, younger" if diff < -0.4 else "About the same")
+        oldest_era = by_decade.loc[by_decade["avg_age"].idxmax()]
+        youngest_era = by_decade.loc[by_decade["avg_age"].idxmin()]
+
+        answer = (f"{lead}{verdict}. Over the last 5 seasons ({recent_seasons[0]} to "
+                  f"{recent_seasons[-1]}), All-NBA players{scope} averaged {recent:.1f} "
+                  f"years old, vs {before:.1f} in all earlier seasons. The oldest era was "
+                  f"the {oldest_era['era']} ({oldest_era['avg_age']:.1f}); the youngest "
+                  f"was the {youngest_era['era']} ({youngest_era['avg_age']:.1f}).")
+        smooth = by_season["age"].rolling(5, min_periods=1).mean()
+        chart = {"x": by_season["season"].tolist(),
+                 "y": by_season["age"].round(2).tolist(),
+                 "y_smooth": smooth.round(2).tolist(),
+                 "y_label": "Average age of All-NBA players",
+                 "smooth_label": "5-season average"}
+        return {"answer": answer, "table": by_decade,
+                "data": {"recent": recent, "before": before, "chart": chart}}
+
+    if view in ("oldest", "youngest"):
+        aged = df.dropna(subset=["age"])
+        oldest = view == "oldest"
+        # each player once, at their oldest (or youngest) selection
+        best = (aged.sort_values("age", ascending=not oldest)
+                    .drop_duplicates("player_id").head(limit).reset_index(drop=True))
+        table = best[["player_name", "season", "team", "age"]].copy()
+        table.insert(0, "rank", range(1, len(table) + 1))
+        top = table.iloc[0]
+        answer = (f"{lead}The {view} All-NBA selection{scope} was {top['player_name']}, "
+                  f"{top['age']:.1f} years old in {top['season']} ({top['team']} team).")
+        return {"answer": answer, "table": table, "data": {}}
+
+    if view == "season":
+        season = df.sort_values("age", ascending=False)
+        table = season[["player_name", "team", "age"]].reset_index(drop=True)
+        aged = season.dropna(subset=["age"])
+        answer = (f"The All-NBA teams{scope} averaged {aged['age'].mean():.1f} years old. "
+                  f"Oldest: {aged.iloc[0]['player_name']} ({aged.iloc[0]['age']:.1f}); "
+                  f"youngest: {aged.iloc[-1]['player_name']} ({aged.iloc[-1]['age']:.1f}).")
+        return {"answer": answer, "table": table, "data": {}}
+
+    if view == "player":
+        counts = df["team"].value_counts()
+        by_team = ", ".join(f"{counts[t]} {label}" for t, label in
+                            (("1st", "first team"), ("2nd", "second"), ("3rd", "third"))
+                            if t in counts)
+        first, last = df["season"].min(), df["season"].max()
+        name = params["_player_name"]
+        answer = (f"{name} has {len(df)} All-NBA selection{'s' if len(df) != 1 else ''}"
+                  f" ({by_team}), from {first} to {last}.")
+        table = df.sort_values("season")[["season", "team", "age"]].reset_index(drop=True)
+        return {"answer": answer, "table": table, "data": {"count": len(df)}}
+
+    if view == "most":
+        counts = (df.assign(first=df["team"].eq("1st"))
+                    .groupby("player_name", as_index=False)
+                    .agg(selections=("team", "size"), first_team=("first", "sum"),
+                         first_season=("season", "min"), last_season=("season", "max"))
+                    .sort_values(["selections", "first_team"], ascending=False)
+                    .head(limit).reset_index(drop=True))
+        counts.insert(0, "rank", range(1, len(counts) + 1))
+        top = counts.iloc[0]
+        answer = (f"{top['player_name']} has the most All-NBA selections{scope}: "
+                  f"{top['selections']} ({top['first_team']} first team).")
+        return {"answer": answer, "table": counts, "data": {}}
+
+    # career_length: retired players only, grouped by the decade of their first selection
+    start_now = int(CURRENT_SEASON[:4])
+    first = (df.dropna(subset=["from_year", "to_year"])
+               .sort_values("start_year").drop_duplicates("player_id"))
+    retired = first[first["to_year"] < start_now - 1].copy()
+    retired["seasons"] = retired["to_year"] - retired["from_year"] + 1
+    by_decade = (retired.groupby("decade")
+                 .agg(players=("seasons", "size"), avg_seasons=("seasons", "mean"))
+                 .reset_index())
+    by_decade["avg_seasons"] = by_decade["avg_seasons"].round(1)
+    by_decade.insert(0, "first_all_nba", by_decade.pop("decade").astype(str) + "s")
+    longest = by_decade.loc[by_decade["avg_seasons"].idxmax()]
+    shortest = by_decade.loc[by_decade["avg_seasons"].idxmin()]
+    answer = (f"{lead}Retired All-NBA players{scope} played {retired['seasons'].mean():.1f} "
+              f"seasons on average. Careers were longest for players first named in the "
+              f"{longest['first_all_nba']} ({longest['avg_seasons']:.1f}) and shortest for the "
+              f"{shortest['first_all_nba']} ({shortest['avg_seasons']:.1f}). Players still "
+              f"active are left out, so recent decades only count finished careers.")
+    chart = {"x": by_decade["first_all_nba"].tolist(),
+             "y": by_decade["avg_seasons"].tolist(),
+             "y_label": "Average career length (seasons)", "type": "bar"}
+    return {"answer": answer, "table": by_decade, "data": {"chart": chart}}
+
+
 HANDLERS = {
+    "all_nba": all_nba,
     "best_season": best_season,
     "best_games": best_games,
     "game_count": game_count,

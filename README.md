@@ -15,7 +15,8 @@ lists and rules (no LLM), and data comes from the free
 ```bash
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
-venv/bin/python seed.py      # optional: pre-loads Curry, Luka and Jokić
+venv/bin/python seed.py            # optional: pre-loads Curry, Luka and Jokić
+venv/bin/python seed.py --all-nba  # needed for All-NBA / superstar questions (~4 min, once)
 ```
 
 ## Run it
@@ -51,6 +52,11 @@ After that it's instant, and their current season refreshes once a day.
 | `record` | What's Luka's record when he scores 40+? |
 | `streak` | Jokic's longest streak of triple-doubles |
 | `recent_games` | How has Wembanyama played lately? |
+| `all_nba` | Are superstars older now than earlier? · Oldest All-NBA players · How many All-NBA teams does LeBron have? · Average career length of All-NBA players over time |
+
+"Superstars" means All-NBA selections (from `all-nba.csv`, via Basketball
+Reference). Ages are on Feb 1 of each season. Age and career-length questions
+come with a chart.
 
 Filters work across most of these: an opponent ("vs the Lakers", "LAL"), a
 season ("2023-24", "this season", "last season"), and "at home" / "on the road".
@@ -84,8 +90,9 @@ Questions it can't parse are logged to `failed_queries` in `engine/handlers.py`.
 | `ask.py` | terminal interface |
 | `engine/parser.py` | question → category + params |
 | `engine/vocab.py` | team names, stat synonyms, player nicknames, `CURRENT_SEASON` |
-| `engine/handlers.py` | the ten categories |
+| `engine/handlers.py` | the eleven categories |
 | `engine/fetch.py` | on-demand nba_api fetching and daily refresh |
+| `engine/allnba.py`, `all-nba.csv` | All-NBA selections and player birthdates/career spans |
 | `seed.py`, `schema.py` | optional pre-loading; database path and `games` table |
 | `tests/test_parser.py` | parser and end-to-end answer tests |
 | `ARCHITECTURE.md` | the longer-term plan (discourse engine, frontend) |

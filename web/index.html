@@ -86,6 +86,7 @@
   }
   .question { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
   .answer { font-size: 24px; line-height: 1.35; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+  .detail { margin: 10px 0 0; color: var(--muted); font-size: 16px; }
   .answer.error { color: var(--error); font-size: 18px; font-weight: 500; }
   .tag {
     display: inline-block; margin-top: 14px;
@@ -102,6 +103,17 @@
   th.key, td.key { color: var(--accent); font-weight: 600; }
   .more { font-size: 13px; color: var(--muted); padding: 10px 12px; }
   .more button { font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 0; }
+
+  .chart { margin-top: 20px; }
+  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .chart .axis { font-size: 11px; fill: var(--muted); }
+  .chart .grid { stroke: var(--border); stroke-width: 1; }
+  .chart .raw { fill: var(--muted); opacity: .45; }
+  .chart .line { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
+  .chart .bar { fill: var(--accent); }
+  .chart .bar:hover, .chart .raw:hover { opacity: 1; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 
   .history { margin-top: 40px; }
   .history h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
@@ -159,6 +171,8 @@ const EXAMPLES = [
   "LeBron career high",
   "What's Luka's record when he scores 40+?",
   "How has Wembanyama played lately?",
+  "Are superstars older now than earlier?",
+  "Oldest All-NBA players",
 ];
 
 const LABELS = {
@@ -169,6 +183,9 @@ const LABELS = {
   oreb: "OREB", dreb: "DREB", pf: "PF", plus_minus: "+/-",
   fg_pct: "FG%", fg3_pct: "3P%", ft_pct: "FT%", win_pct: "Win %",
   w: "W", l: "L", stat: "Stat", total: "Total", per_game: "Per game", pct: "Pct",
+  age: "Age", team: "Team", era: "Era", selections: "Selections", avg_age: "Avg age",
+  first_team: "1st team", first_season: "First", last_season: "Last",
+  first_all_nba: "First All-NBA", players: "Players", avg_seasons: "Avg seasons",
 };
 const PCT = new Set(["fg_pct", "fg3_pct", "ft_pct", "pct"]);
 const ROWS_SHOWN = 15;
@@ -232,11 +249,80 @@ function renderTable(data) {
   return wrap;
 }
 
+const SVG = "http://www.w3.org/2000/svg";
+function svg(tag, attrs = {}, text) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function renderChart(chart) {
+  const W = 720, H = 240, L = 40, R = 8, T = 10, B = 28;
+  const ys = chart.y.concat(chart.y_smooth || []).filter((v) => v != null);
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (chart.type === "bar") lo = 0;
+  const pad = (hi - lo) * 0.1 || 1;
+  lo = chart.type === "bar" ? 0 : Math.floor(lo - pad); hi = Math.ceil(hi + pad);
+  const n = chart.x.length;
+  const xAt = (i) => L + (n === 1 ? (W - L - R) / 2 : i * (W - L - R) / (n - 1));
+  const yAt = (v) => T + (hi - v) * (H - T - B) / (hi - lo);
+  const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": chart.y_label });
+
+  // round tick steps: 1, 2, 5, 10, 20, ...
+  const raw = (hi - lo) / 4, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) {
+    const y = yAt(v);
+    root.append(svg("line", { class: "grid", x1: L, x2: W - R, y1: y, y2: y }));
+    root.append(svg("text", { class: "axis", x: L - 6, y: y + 4, "text-anchor": "end" }, +v.toFixed(2)));
+  }
+
+  if (chart.type === "bar") {
+    const slot = (W - L - R) / n, bw = Math.min(48, slot * 0.6);
+    chart.x.forEach((label, i) => {
+      const cx = L + slot * (i + 0.5);
+      const bar = svg("rect", { class: "bar", x: cx - bw / 2, y: yAt(chart.y[i]), width: bw,
+                                height: yAt(lo) - yAt(chart.y[i]), rx: 3 });
+      bar.append(svg("title", {}, `${label}: ${chart.y[i]}`));
+      root.append(bar);
+      root.append(svg("text", { class: "axis", x: cx, y: H - 8, "text-anchor": "middle" }, label));
+    });
+  } else {
+    chart.x.forEach((label, i) => {
+      const dot = svg("circle", { class: "raw", cx: xAt(i), cy: yAt(chart.y[i]), r: 2.5 });
+      dot.append(svg("title", {}, `${label}: ${chart.y[i]}`));
+      root.append(dot);
+      // label the first season of each decade
+      if (/^\d{3}0-/.test(label))
+        root.append(svg("text", { class: "axis", x: xAt(i), y: H - 8, "text-anchor": "middle" }, label.slice(0, 4)));
+    });
+    if (chart.y_smooth) {
+      const d = chart.y_smooth.map((v, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join("");
+      root.append(svg("path", { class: "line", d }));
+    }
+  }
+
+  const legend = el("div", { class: "legend" },
+    el("span", {}, el("i", { style: `background: var(${chart.type === "bar" ? "--accent" : "--muted"})` }),
+      chart.type === "bar" ? chart.y_label : "Each season"));
+  if (chart.y_smooth) legend.append(el("span", {}, el("i", { style: "background: var(--accent)" }), chart.smooth_label));
+  return el("div", { class: "chart" }, root, legend);
+}
+
 function render(data) {
   const unknown = data.category === "unknown";
+  // long answers: first sentence as the headline, the rest as normal text
+  let headline = data.answer, detail = "";
+  const split = data.answer.search(/\.\s+[A-Z]/);
+  if (data.answer.length > 110 && split > 0) {
+    headline = data.answer.slice(0, split + 1);
+    detail = data.answer.slice(split + 1).trim();
+  }
   const card = el("div", { class: "card" },
     el("p", { class: "question" }, data.question),
-    el("p", { class: "answer" + (data.rows.length || !unknown ? "" : " error") }, data.answer));
+    el("p", { class: "answer" + (data.rows.length || !unknown ? "" : " error") }, headline));
+  if (detail) card.append(el("p", { class: "detail" }, detail));
   if (!unknown) card.append(el("span", { class: "tag" }, data.category.replace(/_/g, " ")));
   if (unknown) card.append(el("div", { class: "hint" }, "Try asking about:",
     el("ul", {}, ...[
@@ -244,7 +330,9 @@ function render(data) {
       "how many games a player has with 30+ points, triple-doubles, etc.",
       "best seasons, career highs, career totals, streaks, or records",
       "comparing two players, or who leads the league in a stat",
+      "All-NBA history: ages over time, oldest and youngest, most selections, career length",
     ].map((t) => el("li", {}, t)))));
+  if (data.chart) card.append(renderChart(data.chart));
   if (data.rows.length) card.append(renderTable(data));
   result.replaceChildren(card);
 }
