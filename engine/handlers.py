@@ -21,7 +21,8 @@ from pathlib import Path
 import pandas as pd
 from nba_api.stats.static import players
 
-from engine.fetch import ensure_league_stats, ensure_player
+from engine.fetch import (birthdate, ensure_all_time_leaders, ensure_league_stats,
+                          ensure_player, season_totals)
 from engine.vocab import CURRENT_SEASON
 
 DB_PATH = Path(__file__).resolve().parent.parent / "courtside.db"
@@ -804,7 +805,122 @@ def all_nba(params):
     return {"answer": answer, "table": by_decade, "data": {"chart": chart}}
 
 
+# ---------------------------------------------------------------- all-time leaders
+
+STAT_WORDS = {"pts": "points", "reb": "rebounds", "ast": "assists", "stl": "steals",
+              "blk": "blocks", "tov": "turnovers", "fgm": "field goals", "fga": "field goal attempts",
+              "fg3m": "3-pointers", "fg3a": "3-point attempts", "ftm": "free throws",
+              "fta": "free throw attempts", "oreb": "offensive rebounds",
+              "dreb": "defensive rebounds", "pf": "fouls", "gp": "games",
+              "fg_pct": "field goal percentage", "fg3_pct": "3-point percentage",
+              "ft_pct": "free throw percentage"}
+
+
+def _years_since(born):
+    return (pd.Timestamp.today() - pd.Timestamp(born)).days / 365.25 if born else None
+
+
+def _recent_pace(totals, stat):
+    """Average per season over the last 3 complete regular seasons."""
+    if totals is None or totals.empty or stat not in totals:
+        return None
+    done = totals[totals["season"] != CURRENT_SEASON]
+    last = done.tail(3)
+    return float(last[stat].mean()) if len(last) else None
+
+
+def all_time(params):
+    """All-time career leaders (regular season, top 25 from nba_api).
+
+    params: stat (default "pts"), player (where does he rank), chase (True for
+    "will anyone beat X's record?": projects active players' paths to #1), limit.
+    """
+    stat = _check_stat(params.get("stat", "pts"), list(STAT_WORDS))
+    words = STAT_WORDS[stat]
+    with _connect() as conn:
+        ensure_all_time_leaders(conn)
+        try:
+            board = pd.read_sql("SELECT * FROM all_time_leaders WHERE stat = ? ORDER BY rank",
+                                conn, params=[stat])
+        except pd.errors.DatabaseError:
+            board = pd.DataFrame()
+    if board.empty:
+        raise QueryError("All-time leaders aren't loaded, and nba_api couldn't be reached.")
+
+    is_pct = stat in PCT_STATS
+    fmt = (lambda v: f"{v:.1%}") if is_pct else (lambda v: f"{int(v):,}")
+    holder = board.iloc[0]
+    table = board[["rank", "player_name", "value", "active"]].copy()
+    table["active"] = table["active"].map({1: "yes", 0: "", True: "yes", False: ""})
+    table = table.rename(columns={"value": stat})
+
+    if params.get("player"):
+        player = _resolve_player(params["player"])
+        row = board[board["player_id"] == player["id"]]
+        if row.empty:
+            answer = (f"{player['full_name']} isn't in the all-time top 25 in {words}; "
+                      f"#25 is {board.iloc[-1]['player_name']} with {fmt(board.iloc[-1]['value'])}.")
+        else:
+            r = row.iloc[0]
+            answer = (f"{player['full_name']} ranks #{int(r['rank'])} all-time in {words} "
+                      f"with {fmt(r['value'])}.")
+            if int(r["rank"]) > 1:
+                answer += f" #1 is {holder['player_name']} with {fmt(holder['value'])}."
+        return {"answer": answer, "table": table.head(int(params.get("limit", 25))), "data": {}}
+
+    if not params.get("chase") or is_pct:
+        answer = (f"{holder['player_name']} is the all-time leader in {words} "
+                  f"with {fmt(holder['value'])}.")
+        return {"answer": answer, "table": table.head(int(params.get("limit", 10))), "data": {}}
+
+    # "Will anyone beat the record?": project active challengers
+    record = float(holder["value"])
+    holder_pace = 0.0
+    if holder["active"]:
+        holder_pace = _recent_pace(season_totals(int(holder["player_id"])), stat) or 0.0
+    challengers = board[(board["active"].astype(bool)) & (board["rank"] > 1)].head(6)
+
+    rows = []
+    with _connect() as conn:
+        for _, c in challengers.iterrows():
+            pace = _recent_pace(season_totals(int(c["player_id"])), stat)
+            age = _years_since(birthdate(conn, int(c["player_id"])))
+            gap = record - c["value"]
+            # seasons to pass today's mark; the holder may keep adding to it
+            seasons = gap / pace if pace else None
+            rows.append({"rank": int(c["rank"]), "player_name": c["player_name"],
+                         stat: int(c["value"]), "behind": int(gap),
+                         "per_season": round(pace) if pace else None,
+                         "age": round(age, 1) if age else None,
+                         "seasons_needed": round(seasons, 1) if seasons else None,
+                         "age_at_record": round(age + seasons, 1) if seasons and age else None})
+    chase = pd.DataFrame(rows)
+    if chase.empty:
+        raise QueryError(f"No active players in the all-time top 25 in {words}.")
+
+    able = chase.dropna(subset=["seasons_needed"]).sort_values("seasons_needed")
+    moving = (f" and is still adding about {holder_pace:,.0f} a season, so the real target "
+              f"will be higher" if holder["active"] and holder_pace else "")
+    lead = (f"{holder['player_name']} holds the record with {fmt(record)} {words}{moving}.")
+    if able.empty:
+        answer = (f"Unlikely. {lead} No active player in the all-time top 25 has a recent "
+                  f"pace to project from.")
+    else:
+        best = able.iloc[0]
+        years, age_at = best["seasons_needed"], best["age_at_record"]
+        verdict = ("Likely" if years <= 3 and (age_at or 0) <= 38 else
+                   "Possibly" if years <= 6 and (age_at or 0) <= 39 else "Unlikely")
+        answer = (f"{verdict}. {lead} The closest challenger on pace is {best['player_name']} "
+                  f"({best[stat]:,}, {best['behind']:,} behind), averaging about "
+                  f"{best['per_season']:,} {words} a season over his last 3 seasons. "
+                  f"At that pace he'd pass today's mark in about {years:.1f} seasons")
+        answer += f" and would be about {age_at:.0f}." if age_at else "."
+    answer += " Only players already in the all-time top 25 are considered."
+    return {"answer": answer, "table": chase, "data": {"record": record}}
+
+
 HANDLERS = {
+    "all_time": all_time,
     "all_nba": all_nba,
     "best_season": best_season,
     "best_games": best_games,

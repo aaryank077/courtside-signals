@@ -169,3 +169,72 @@ def ensure_league_stats(conn):
     df["season"] = CURRENT_SEASON
     df.to_sql("league_stats", conn, if_exists="replace", index=False)
     _mark_refreshed(conn, "league")
+
+
+# ---------------------------------------------------------------- all-time leaders
+
+def ensure_all_time_leaders(conn):
+    """All-time top 25 in each stat (regular season), refreshed once a day.
+    Stored long-form: all_time_leaders(stat, rank, player_id, player_name, value, active)."""
+    if offline() or _last_refresh(conn, "alltime") == date.today().isoformat():
+        return
+    from nba_api.stats.endpoints import alltimeleadersgrids
+    frames = with_retries(
+        lambda: alltimeleadersgrids.AllTimeLeadersGrids(topx=25, timeout=20).get_data_frames(),
+        "all-time leaders")
+    if frames is None:
+        _say("Couldn't refresh all-time leaders; using what's stored.")
+        return
+    rows = []
+    for f in frames:
+        stat = f.columns[2]
+        for _, r in f.iterrows():
+            rows.append({"stat": stat.lower(), "rank": int(r[f"{stat}_RANK"]),
+                         "player_id": int(r["PLAYER_ID"]), "player_name": r["PLAYER_NAME"],
+                         "value": float(r[stat]), "active": r["IS_ACTIVE_FLAG"] == "Y"})
+    pd.DataFrame(rows).to_sql("all_time_leaders", conn, if_exists="replace", index=False)
+    _mark_refreshed(conn, "alltime")
+
+
+def season_totals(player_id):
+    """One row per regular season (traded players' combined 'TOT' row kept),
+    columns lowercased, plus 'season'. None if nba_api can't be reached."""
+    if offline():
+        return None
+    frames = with_retries(
+        lambda: playercareerstats.PlayerCareerStats(player_id=player_id, timeout=15)
+        .get_data_frames(), "career stats")
+    if frames is None:
+        return None
+    df = frames[0].copy()
+    df.columns = [c.lower() for c in df.columns]
+    df["season"] = df["season_id"]
+    # a traded player has a row per team plus a TOT row; keep the biggest (TOT)
+    return df.sort_values("gp").drop_duplicates("season", keep="last").sort_values("season")
+
+
+def birthdate(conn, player_id):
+    """Birthdate 'YYYY-MM-DD' from player_bio, fetching and storing it if needed."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS player_bio (
+        player_id INTEGER PRIMARY KEY, player_name TEXT, birthdate TEXT,
+        from_year INTEGER, to_year INTEGER, season_exp INTEGER)""")
+    row = conn.execute("SELECT birthdate FROM player_bio WHERE player_id = ?",
+                       (player_id,)).fetchone()
+    if row and row[0]:
+        return row[0]
+    if offline():
+        return None
+    from nba_api.stats.endpoints import commonplayerinfo
+    info = with_retries(lambda: commonplayerinfo.CommonPlayerInfo(
+        player_id=player_id, timeout=15).get_data_frames()[0], "player info")
+    if info is None or info.empty:
+        return None
+    r = info.iloc[0]
+    born = str(r["BIRTHDATE"])[:10]
+    conn.execute("INSERT OR REPLACE INTO player_bio VALUES (?, ?, ?, ?, ?, ?)",
+                 (player_id, r["DISPLAY_FIRST_LAST"], born,
+                  int(r["FROM_YEAR"]) if pd.notna(r["FROM_YEAR"]) else None,
+                  int(r["TO_YEAR"]) if pd.notna(r["TO_YEAR"]) else None,
+                  int(r["SEASON_EXP"]) if pd.notna(r["SEASON_EXP"]) else None))
+    conn.commit()
+    return born
