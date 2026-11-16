@@ -420,13 +420,12 @@ def compare_players(params):
 
     parts = []
     for stat in stats:
-        label = STAT_LABELS.get(stat, stat.upper())
         ranked = table.sort_values(stat, ascending=(stat == "tov"))
-        values = " vs ".join(f"{r['player'].split()[-1]} {_fmt(stat, r[stat])}"
-                             for _, r in ranked.iterrows())
-        parts.append(f"{label}: {values}")
-    answer = (f"Per game{_describe_filters(params)}: " + "; ".join(parts) +
-              ". (Games in the database only.)")
+        values = ", ".join(f"{r['player'].split()[-1]} {_fmt(stat, r[stat])}"
+                           for _, r in ranked.iterrows())
+        parts.append(f"{STAT_LABELS.get(stat, stat.upper())}: {values}")
+    scope = _describe_filters(params).strip() or "career"
+    answer = "; ".join(parts) + f" ({scope}, regular season)."
     return {"answer": answer, "table": table,
             "data": {"rows": table.to_dict("records")}}
 

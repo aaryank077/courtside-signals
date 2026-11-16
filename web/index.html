@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Courtside</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --surface: #ffffff;
+    --text: #1c1b19;
+    --muted: #6b675f;
+    --border: #e4e0d8;
+    --accent: #d9622b;
+    --accent-soft: #fbe9df;
+    --row-alt: #faf8f5;
+    --error: #b42318;
+    --shadow: 0 1px 2px rgba(28, 27, 25, .06), 0 4px 16px rgba(28, 27, 25, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141312;
+      --surface: #1d1c1a;
+      --text: #f2efe9;
+      --muted: #a29d93;
+      --border: #33312d;
+      --accent: #f0814a;
+      --accent-soft: #3a2519;
+      --row-alt: #22201e;
+      --error: #f97066;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 48px 16px 80px; }
+
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+  .brand svg { flex: none; }
+  .brand h1 { font-size: 22px; letter-spacing: -.01em; margin: 0; }
+  .brand span { color: var(--muted); font-size: 14px; }
+
+  form { display: flex; gap: 8px; }
+  input[type=search] {
+    flex: 1; min-width: 0;
+    font: inherit; font-size: 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface); color: var(--text);
+    box-shadow: var(--shadow);
+  }
+  input[type=search]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.ask {
+    font: inherit; font-weight: 600;
+    padding: 0 22px; border: 0; border-radius: 12px;
+    background: var(--accent); color: #fff; cursor: pointer;
+  }
+  button.ask:disabled { opacity: .6; cursor: wait; }
+
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+  .examples button {
+    font: inherit; font-size: 13px;
+    padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--border); background: transparent; color: var(--muted);
+    cursor: pointer;
+  }
+  .examples button:hover { color: var(--text); border-color: var(--accent); }
+
+  .result { margin-top: 36px; }
+  .status { color: var(--muted); display: flex; align-items: center; gap: 10px; }
+  .spinner {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px; box-shadow: var(--shadow);
+  }
+  .question { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+  .answer { font-size: 24px; line-height: 1.35; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+  .answer.error { color: var(--error); font-size: 18px; font-weight: 500; }
+  .tag {
+    display: inline-block; margin-top: 14px;
+    font-size: 12px; color: var(--accent); background: var(--accent-soft);
+    padding: 2px 8px; border-radius: 6px;
+  }
+
+  .table-wrap { margin-top: 20px; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 9px 12px; text-align: left; white-space: nowrap; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--border); }
+  td.num, th.num { text-align: right; }
+  tbody tr:nth-child(even) { background: var(--row-alt); }
+  th.key, td.key { color: var(--accent); font-weight: 600; }
+  .more { font-size: 13px; color: var(--muted); padding: 10px 12px; }
+  .more button { font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 0; }
+
+  .history { margin-top: 40px; }
+  .history h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+  .history ul { list-style: none; margin: 0; padding: 0; }
+  .history button {
+    font: inherit; font-size: 14px; text-align: left; width: 100%;
+    background: none; border: 0; color: var(--text); cursor: pointer;
+    padding: 6px 0; border-bottom: 1px solid var(--border);
+  }
+  .history button:hover { color: var(--accent); }
+
+  .hint { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
+  .hint ul { margin: 6px 0 0; padding-left: 18px; }
+
+  @media (max-width: 560px) {
+    main { padding-top: 28px; }
+    .brand span { display: none; }
+    .examples { flex-wrap: nowrap; overflow-x: auto; margin-right: -16px; padding-right: 16px; scrollbar-width: none; }
+    .examples button { white-space: nowrap; }
+    .answer { font-size: 20px; }
+    button.ask { padding: 0 16px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+      <circle cx="16" cy="16" r="14" fill="var(--accent)"/>
+      <path d="M2 16h28M16 2v28M6.5 6.5c5 4 5 15 0 19M25.5 6.5c-5 4-5 15 0 19" stroke="var(--surface)" stroke-width="1.6" fill="none"/>
+    </svg>
+    <h1>Courtside</h1>
+    <span>ask anything about NBA stats</span>
+  </div>
+
+  <form id="form">
+    <input id="q" type="search" autocomplete="off" autofocus
+           placeholder="How many 30-point games does Luka have against the Lakers?" aria-label="Question">
+    <button class="ask" id="go" type="submit">Ask</button>
+  </form>
+  <ul class="examples" id="examples"></ul>
+
+  <section class="result" id="result" aria-live="polite"></section>
+  <section class="history" id="history" hidden>
+    <h2>Recent</h2>
+    <ul id="history-list"></ul>
+  </section>
+</main>
+
+<script>
+const EXAMPLES = [
+  "Curry vs Luka points per game",
+  "Who leads the league in assists?",
+  "Jokic's longest streak of triple-doubles",
+  "LeBron career high",
+  "What's Luka's record when he scores 40+?",
+  "How has Wembanyama played lately?",
+];
+
+const LABELS = {
+  game_date: "Date", season: "Season", matchup: "Matchup", wl: "W/L", gp: "GP",
+  player: "Player", player_name: "Player", team_abbreviation: "Team", rank: "#",
+  mpg: "MPG", pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK", tov: "TOV",
+  min: "MIN", fgm: "FGM", fga: "FGA", fg3m: "3PM", fg3a: "3PA", ftm: "FTM", fta: "FTA",
+  oreb: "OREB", dreb: "DREB", pf: "PF", plus_minus: "+/-",
+  fg_pct: "FG%", fg3_pct: "3P%", ft_pct: "FT%", win_pct: "Win %",
+  w: "W", l: "L", stat: "Stat", total: "Total", per_game: "Per game", pct: "Pct",
+};
+const PCT = new Set(["fg_pct", "fg3_pct", "ft_pct", "pct"]);
+const ROWS_SHOWN = 15;
+
+const $ = (id) => document.getElementById(id);
+const form = $("form"), input = $("q"), go = $("go"), result = $("result");
+
+function label(col) {
+  if (LABELS[col]) return LABELS[col];
+  if (col.endsWith("_pg")) return (LABELS[col.slice(0, -3)] || col) + "/G";
+  return col.replace(/_/g, " ");
+}
+
+function format(col, v) {
+  if (v === null || v === undefined) return "–";
+  if (typeof v !== "number") return String(v);
+  if (PCT.has(col)) return (v * 100).toFixed(1) + "%";
+  if (col === "win_pct") return v.toFixed(3).replace(/^0/, "");
+  return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1);
+}
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) if (c != null) node.append(c);
+  return node;
+}
+
+function keyColumn(data) {
+  const stat = data.params && data.params.stat;
+  if (!stat) return null;
+  return data.columns.find((c) => c === stat + "_pg") || data.columns.find((c) => c === stat) || null;
+}
+
+function renderTable(data) {
+  const key = keyColumn(data);
+  const numeric = data.columns.map((_, i) => data.rows.some((r) => typeof r[i] === "number"));
+  const cls = (i, c) => [numeric[i] ? "num" : "", c === key ? "key" : ""].join(" ").trim();
+
+  const tbody = el("tbody");
+  const addRows = (rows) => rows.forEach((row) =>
+    tbody.append(el("tr", {}, ...row.map((v, i) =>
+      el("td", { class: cls(i, data.columns[i]) }, format(data.columns[i], v))))));
+  addRows(data.rows.slice(0, ROWS_SHOWN));
+
+  const wrap = el("div", { class: "table-wrap" },
+    el("table", {},
+      el("thead", {}, el("tr", {}, ...data.columns.map((c, i) => el("th", { class: cls(i, c) }, label(c))))),
+      tbody));
+
+  if (data.rows.length > ROWS_SHOWN) {
+    const more = el("div", { class: "more" },
+      `${data.rows.length - ROWS_SHOWN} more rows · `,
+      el("button", { type: "button", onclick: () => { addRows(data.rows.slice(ROWS_SHOWN)); more.remove(); } }, "Show all"));
+    wrap.append(more);
+  }
+  return wrap;
+}
+
+function render(data) {
+  const unknown = data.category === "unknown";
+  const card = el("div", { class: "card" },
+    el("p", { class: "question" }, data.question),
+    el("p", { class: "answer" + (data.rows.length || !unknown ? "" : " error") }, data.answer));
+  if (!unknown) card.append(el("span", { class: "tag" }, data.category.replace(/_/g, " ")));
+  if (unknown) card.append(el("div", { class: "hint" }, "Try asking about:",
+    el("ul", {}, ...[
+      "a player's averages, optionally vs a team or in a season",
+      "how many games a player has with 30+ points, triple-doubles, etc.",
+      "best seasons, career highs, career totals, streaks, or records",
+      "comparing two players, or who leads the league in a stat",
+    ].map((t) => el("li", {}, t)))));
+  if (data.rows.length) card.append(renderTable(data));
+  result.replaceChildren(card);
+}
+
+function renderError(question, message) {
+  result.replaceChildren(el("div", { class: "card" },
+    el("p", { class: "question" }, question),
+    el("p", { class: "answer error" }, message)));
+}
+
+let history = [];
+try { history = JSON.parse(localStorage.getItem("courtside-history") || "[]"); } catch {}
+
+function remember(q) {
+  history = [q, ...history.filter((h) => h !== q)].slice(0, 8);
+  try { localStorage.setItem("courtside-history", JSON.stringify(history)); } catch {}
+  renderHistory();
+}
+
+function renderHistory() {
+  $("history").hidden = history.length === 0;
+  $("history-list").replaceChildren(...history.map((h) =>
+    el("li", {}, el("button", { type: "button", onclick: () => askQuestion(h) }, h))));
+}
+
+async function askQuestion(q) {
+  q = q.trim();
+  if (!q) return;
+  input.value = q;
+  go.disabled = true;
+  const status = el("p", { class: "status" }, el("span", { class: "spinner" }), "Looking it up…");
+  result.replaceChildren(status);
+  // a player we've never seen gets their whole career fetched, which takes a bit
+  const slow = setTimeout(() => status.lastChild.replaceWith(
+    "Fetching this player's career for the first time, this can take up to 30 seconds…"), 2500);
+
+  const url = new URL(location);
+  url.searchParams.set("q", q);
+  history_replace(url);
+
+  try {
+    const res = await fetch("/api/ask?q=" + encodeURIComponent(q));
+    const data = await res.json();
+    if (!res.ok) renderError(q, data.error || "Something went wrong.");
+    else { render(data); if (data.category !== "unknown") remember(q); }
+  } catch {
+    renderError(q, "Couldn't reach the server. Is server.py still running?");
+  } finally {
+    clearTimeout(slow);
+    go.disabled = false;
+  }
+}
+
+function history_replace(url) {
+  try { window.history.replaceState(null, "", url); } catch {}
+}
+
+form.addEventListener("submit", (e) => { e.preventDefault(); askQuestion(input.value); });
+$("examples").replaceChildren(...EXAMPLES.map((ex) =>
+  el("li", {}, el("button", { type: "button", onclick: () => askQuestion(ex) }, ex))));
+renderHistory();
+
+const initial = new URLSearchParams(location.search).get("q");
+if (initial) askQuestion(initial);
+</script>
+</body>
+</html>

@@ -123,7 +123,7 @@ ANSWER_CASES = [
     ("Curry's 2015-16 points per game", r"30\.1 PPG over 79 games"),
     ("How many 30-point games does Luka have against the Lakers?", r"has \d+ games with 30\+ pts vs LAL"),
     ("What are Jokić's rebound numbers against the Celtics?", r"vs BOS: \d+\.\d RPG"),
-    ("Curry vs Luka points per game", r"PPG: (Dončić|Curry) \d+\.\d vs (Dončić|Curry) \d+\.\d"),
+    ("Curry vs Luka points per game", r"PPG: (Dončić|Curry) \d+\.\d, (Dončić|Curry) \d+\.\d \(career"),
     ("What's Luka's record when he scores 40+?", r"teams are \d+-\d+ \(\.\d{3}\) in games with 40\+ pts"),
     ("Jokic's longest streak of triple-doubles", r"is \d+, from \d{4}-\d\d-\d\d"),
     ("Curry's last 10 games", r"last 10 games \("),
