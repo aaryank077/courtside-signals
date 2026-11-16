@@ -126,6 +126,16 @@ PARSE_CASES = [
      "all_nba", {"view": "career_length"}),
     ("Do superstars' careers last longer now?",
      "all_nba", {"superstars": True, "view": "career_length"}),
+    # all_time
+    ("will anyone beat curry's 3PT FG record?", "all_time", {"stat": "fg3m", "chase": True}),
+    ("Can anyone break LeBron's scoring record?", "all_time", {"stat": "pts", "chase": True}),
+    ("Who has the most career points?", "all_time", {"stat": "pts"}),
+    ("all-time leaders in blocks", "all_time", {"stat": "blk"}),
+    ("Where does LeBron rank all-time in assists?",
+     "all_time", {"stat": "ast", "player": "LeBron James"}),
+    ("top 5 all time 3 pointers", "all_time", {"stat": "fg3m", "limit": 5}),
+    ("How many 3 pointers does Curry have this season?",
+     "player_averages", {"player": "Stephen Curry", "stats": ["fg3m"], "season": "2026-27"}),
     # things it should not try to answer
     ("what is the meaning of life", "unknown", {}),
     ("who is better, the heat or the magic", "unknown", {}),
@@ -152,6 +162,10 @@ ANSWER_CASES = [
     ("How many All-NBA teams does LeBron have?", r"LeBron James has \d+ All-NBA selections"),
     ("Who has the most All-NBA selections?", r"LeBron James has the most All-NBA selections"),
     ("All-NBA 2003-04", r"averaged \d+\.\d years old"),
+    ("will anyone beat curry's 3PT FG record?",
+     r"^(Likely|Possibly|Unlikely)\. Stephen Curry holds the record with [\d,]+ 3-pointers"),
+    ("Who has the most career points?", r"is the all-time leader in points with [\d,]+"),
+    ("Where does LeBron rank all-time in assists?", r"LeBron James ranks #\d+ all-time in assists"),
     ("what is the meaning of life", r"not capable"),
 ]
 

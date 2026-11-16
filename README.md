@@ -52,6 +52,7 @@ After that it's instant, and their current season refreshes once a day.
 | `record` | What's Luka's record when he scores 40+? |
 | `streak` | Jokic's longest streak of triple-doubles |
 | `recent_games` | How has Wembanyama played lately? |
+| `all_time` | Will anyone beat Curry's 3-point record? · Who has the most career points? · Where does LeBron rank all-time in assists? |
 | `all_nba` | Are superstars older now than earlier? · Oldest All-NBA players · How many All-NBA teams does LeBron have? · Average career length of All-NBA players over time |
 
 "Superstars" means All-NBA selections (from `all-nba.csv`, via Basketball
@@ -90,7 +91,7 @@ Questions it can't parse are logged to `failed_queries` in `engine/handlers.py`.
 | `ask.py` | terminal interface |
 | `engine/parser.py` | question → category + params |
 | `engine/vocab.py` | team names, stat synonyms, player nicknames, `CURRENT_SEASON` |
-| `engine/handlers.py` | the eleven categories |
+| `engine/handlers.py` | the twelve categories |
 | `engine/fetch.py` | on-demand nba_api fetching and daily refresh |
 | `engine/allnba.py`, `all-nba.csv` | All-NBA selections and player birthdates/career spans |
 | `seed.py`, `schema.py` | optional pre-loading; database path and `games` table |
@@ -115,6 +116,10 @@ the question and its expected parse to `PARSE_CASES` in the tests.
 When a new season starts, change `CURRENT_SEASON` in `engine/vocab.py`.
 
 ## Limits
+
+- Record-chase projections ("will anyone beat...?") only consider active players
+  already in the all-time top 25, use their average over the last 3 full
+  seasons, and assume they keep that pace.
 
 - Regular season only; no playoffs yet.
 - League-wide game questions ("who has the most 40-point games?") only see

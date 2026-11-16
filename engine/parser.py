@@ -275,6 +275,24 @@ def parse(question):
     if has(r"\ball nba\b|\bsuperstars?\b|\bstars\b"):
         return "all_nba", _all_nba_params(x, has)
 
+    # all-time career leaders and records: "will anyone beat Curry's 3PT record?",
+    # "who has the most career points?", "where does LeBron rank all-time in assists?"
+    chase = has(r"\b(beat|beats|break|breaks|broken|pass|passes|catch|surpass|top)\b.*\brecord\b"
+                r"|\brecord\b.*\b(beat|break|broken|pass|catch|surpass)\b|\b(will|can) anyone\b")
+    stat_record = (has(r"\brecords?\b") and stats
+                   and not has(r"\b(win|wins|won|loss|losses|when|w l|record vs|record against)\b"))
+    all_time_list = has(r"\ball time\b") or (
+        not player and stats and has(r"\bcareer\b") and has(r"\b(most|leaders?|leads|who)\b"))
+    if stats and (chase or stat_record or all_time_list):
+        params = {"stat": stats[0]}
+        if chase:
+            params["chase"] = True
+        elif player and not stat_record:
+            params["player"] = player
+        if x["limit"]:
+            params["limit"] = x["limit"]
+        return "all_time", params
+
     triple_double = has(r"\btriple doubles?\b")
 
     def game_conditions():
