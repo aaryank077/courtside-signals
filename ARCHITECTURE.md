@@ -1,21 +1,35 @@
-System Components
-1. Discourse engine — would scrape data from Reddit to train the model on what
-fans are curious about. Turns reddit data into simple questions. For instance,
-if fans are remarking about how old superstars are in the NBA nowadays, it will
-be able to generate insightful questions (what's the average age of an all-NBA
-player nowadays?).
-2a. Data layer — courtside.db, seeded from nba.api and Basketball Reference.
-Stores game logs, league stats, and awards data. Will update as more queries are
-made.
-2b. SQL inquiries — turns questions into quantifiable answers and tables after
-reading courtside.db. This is most similar to statmuse, as it takes key words
-and translates them into code queries. An LLM will classify the intent of the
-query (best season, game count, statline) and SQL will handle the query
-3. Frontend.
+# Architecture
 
-Data flow:
-Reddit → [Discourse engine] → generates questions
-Questions → [Query engine] → SQL → courtside.db → answer
-Answer → [Frontend] → displayed to user
+## Today
 
-Intent categories: best_season, game_count, player_averages, league_leaders, career_stat
+```
+question ─► engine/parser.py ─► (category, params) ─► engine/handlers.py ─► SQL on courtside.db ─► answer + table
+```
+
+- **Data layer**: `courtside.db` (SQLite), filled on demand from nba_api, plus
+  All-NBA selections from Basketball Reference (`all-nba.csv`). Game logs and
+  career totals are fetched the first time a player is asked about; league
+  stats refresh daily.
+- **Query engine**: a rule-based parser (word lists in `engine/vocab.py`, no
+  LLM) maps a question to one of twelve categories and a params dict. One
+  handler per category turns that into SQL and returns `{answer, table, data}`.
+- **Frontend**: `server.py` serves `web/index.html` and a JSON API
+  (`/api/ask?q=...`); `ask.py` is the terminal interface.
+
+## Next: discourse engine
+
+The plan is to read what fans are actually arguing about (e.g. Reddit threads)
+and turn it into questions the query engine can answer. If fans are saying
+superstars are older than they used to be, it should generate "what's the
+average age of an All-NBA player over time?" and answer it with data.
+
+```
+Reddit ─► [discourse engine] ─► questions ─► [query engine] ─► courtside.db ─► answer ─► [frontend]
+```
+
+Open questions:
+
+- How to cluster threads into topics and pick which ones are answerable.
+- Whether question generation needs a model or can stay rule-based like the parser.
+- Logging questions the parser fails on (`failed_queries`) to decide which
+  categories to add next.

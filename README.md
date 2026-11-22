@@ -1,5 +1,7 @@
 # courtside-signals
 
+[![CI](https://github.com/aaryank077/courtside-signals/actions/workflows/ci.yml/badge.svg)](https://github.com/aaryank077/courtside-signals/actions/workflows/ci.yml)
+
 Ask NBA stat questions in plain English and get an answer plus the table
 behind it, StatMuse-style.
 
@@ -96,7 +98,7 @@ Questions it can't parse are logged to `failed_queries` in `engine/handlers.py`.
 | `engine/allnba.py`, `all-nba.csv` | All-NBA selections and player birthdates/career spans |
 | `seed.py`, `schema.py` | optional pre-loading; database path and `games` table |
 | `tests/test_parser.py` | parser and end-to-end answer tests |
-| `ARCHITECTURE.md` | the longer-term plan (discourse engine, frontend) |
+| `ARCHITECTURE.md` | current design and the planned discourse engine |
 
 ## Tests
 

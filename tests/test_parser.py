@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 from engine.parser import ask, parse  # noqa: E402
 
 PARSE_CASES = [
-    # the five original questions from fetch_data.py
+    # the five original questions
     ("Steph Curry's best 3-point shooting season with at least 400 attempts",
      "best_season", {"player": "Stephen Curry", "stat": "fg3_pct", "min": {"fg3a": 400}}),
     ("How many 30-point games does Luka have against the Lakers?",
