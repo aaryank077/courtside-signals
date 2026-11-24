@@ -11,12 +11,25 @@ Routes:
 import json
 import math
 import sys
+import time
 import traceback
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from engine.parser import ask
+
+_signals_cache: dict = {"ts": 0.0, "data": []}
+_SIGNALS_TTL = 900  # 15 minutes
+
+
+def _get_signals(sort="hot", limit=25):
+    if time.time() - _signals_cache["ts"] < _SIGNALS_TTL:
+        return _signals_cache["data"]
+    from engine.discourse import fetch_signals
+    data = fetch_signals(sort=sort, limit=limit)
+    _signals_cache.update(ts=time.time(), data=data)
+    return data
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
@@ -54,6 +67,20 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path == "/api/signals":
+            qs = parse_qs(url.query)
+            sort = (qs.get("sort") or ["hot"])[0]
+            try:
+                limit = int((qs.get("limit") or ["25"])[0])
+            except ValueError:
+                limit = 25
+            try:
+                self._json(200, _get_signals(sort=sort, limit=min(limit, 50)))
+            except Exception:
+                traceback.print_exc()
+                self._json(500, {"error": "Could not fetch Reddit signals."})
+            return
+
         if url.path != "/api/ask":
             return super().do_GET()
 

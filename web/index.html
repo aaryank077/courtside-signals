@@ -128,6 +128,14 @@
   .hint { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
   .hint ul { margin: 6px 0 0; padding-left: 18px; }
 
+  .signals { margin: 24px 0 0; }
+  .signals-label {
+    display: block; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--muted); margin-bottom: 8px;
+  }
+  .signals .examples button { border-color: var(--accent-soft); color: var(--text); }
+  .signals .examples button:hover { border-color: var(--accent); color: var(--accent); }
+
   @media (max-width: 560px) {
     main { padding-top: 28px; }
     .brand span { display: none; }
@@ -155,6 +163,11 @@
     <button class="ask" id="go" type="submit">Ask</button>
   </form>
   <ul class="examples" id="examples"></ul>
+
+  <section class="signals" id="signals" hidden>
+    <span class="signals-label">Trending on r/nba</span>
+    <ul class="examples" id="signals-list"></ul>
+  </section>
 
   <section class="result" id="result" aria-live="polite"></section>
   <section class="history" id="history" hidden>
@@ -400,6 +413,24 @@ renderHistory();
 
 const initial = new URLSearchParams(location.search).get("q");
 if (initial) askQuestion(initial);
+
+async function loadSignals() {
+  try {
+    const res = await fetch("/api/signals");
+    if (!res.ok) return;
+    const signals = await res.json();
+    if (!Array.isArray(signals) || !signals.length) return;
+    const list = $("signals-list");
+    list.replaceChildren(...signals.slice(0, 5).map((s) =>
+      el("li", {}, el("button", {
+        type: "button",
+        title: s.source_title,
+        onclick: () => askQuestion(s.question),
+      }, s.question))));
+    $("signals").hidden = false;
+  } catch {}
+}
+loadSignals();
 </script>
 </body>
 </html>

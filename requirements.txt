@@ -1,2 +1,8 @@
 nba_api==1.11.4
 pandas==3.0.3
+
+# Optional: richer r/nba discourse via Reddit API instead of ESPN fallback.
+# 1. pip install praw
+# 2. Create a free "script" app at https://www.reddit.com/prefs/apps
+# 3. Set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET environment variables
+# praw>=7
