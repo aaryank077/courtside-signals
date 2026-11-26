@@ -10,9 +10,28 @@ question ─► engine/parser.py ─► (category, params) ─► engine/handler
   All-NBA selections from Basketball Reference (`all-nba.csv`). Game logs and
   career totals are fetched the first time a player is asked about; league
   stats refresh daily.
-- **Query engine**: a rule-based parser (word lists in `engine/vocab.py`, no
-  LLM) maps a question to one of twelve categories and a params dict. One
-  handler per category turns that into SQL and returns `{answer, table, data}`.
+- **Query engine**: a rule-based parser (word lists in `engine/vocab.py`)
+  maps a question to one of twelve categories and a params dict. One handler
+  per category turns that into SQL and returns `{answer, table, data}`.
+- **LLM fallback** (`engine/llm_sql.py`): when the parser returns `unknown` or
+  a handler fails, Claude writes one SELECT from the schema notes and examples.
+  It runs on a read-only connection with an authorizer, a timeout and a row
+  cap; a failed query is retried once with the error.
+  The model is Claude by default; `ollama/<name>` runs a local model through
+  Ollama with the same prompt, schema and guards.
+
+```
+question ─► parser ─► handler ─► answer
+              │ unknown / handler error
+              ▼
+           Claude ─► SQL ─► read-only SQLite (authorizer, 2 s, 200 rows) ─► rows
+                     ▲                    │ error
+                     └──── one retry ─────┘
+```
+
+- **Evaluation** (`evals/`): 116 questions with gold SQL, scored by result
+  values against a frozen snapshot of the database, for rules alone, LLM alone
+  and rules-then-LLM. Results and how to run it are in the README.
 - **Frontend**: `server.py` serves `web/index.html` and a JSON API
   (`/api/ask?q=...`); `ask.py` is the terminal interface.
 

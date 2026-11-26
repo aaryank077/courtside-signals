@@ -1,5 +1,6 @@
 nba_api==1.11.4
 pandas==3.0.3
+anthropic==2.14.0  # LLM text-to-SQL (engine/llm_sql.py); tests mock it
 
 # Optional: richer r/nba discourse via Reddit API instead of ESPN fallback.
 # 1. pip install praw

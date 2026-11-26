@@ -958,11 +958,12 @@ def follow_query(category, query):
     handler = HANDLERS.get(category)
     if handler is None:
         _log_failed(category, query)
-        return {"category": category, "table": None, "data": {},
+        return {"category": category, "table": None, "data": {}, "error": True,
                 "answer": "Sorry, we're not capable of answering that."}
     try:
         result = handler(query or {})
     except QueryError as e:
         _log_failed(category, query)
-        return {"category": category, "answer": str(e), "table": None, "data": {}}
+        return {"category": category, "answer": str(e), "table": None, "data": {},
+                "error": True}
     return {"category": category, **result}

@@ -8,8 +8,10 @@ behind it, StatMuse-style.
 > **How many 30-point games does Luka have against the Lakers?**
 > Luka Dončić has 8 games with 30+ pts vs LAL.
 
-Everything runs locally and costs nothing: questions are parsed with word
-lists and rules (no LLM), and data comes from the free
+Questions are parsed with word lists and rules first, which runs locally and
+costs nothing. When the rules can't answer, an optional LLM fallback has Claude
+write one read-only SQL query instead. Both are scored on the same 116-question
+test set (see [Rules vs LLM](#rules-vs-llm-text-to-sql)). Data comes from the free
 [nba_api](https://github.com/swar/nba_api) into a SQLite database.
 
 ## Setup
@@ -35,7 +37,11 @@ venv/bin/python server.py
 venv/bin/python ask.py                                  # type questions; "exit" to quit
 venv/bin/python ask.py "LeBron career high"             # one question
 venv/bin/python ask.py --debug "Curry vs Luka points"   # also show how it was parsed
+venv/bin/python ask.py --llm "Jokic plus-minus in losses"   # rules, then Claude if they can't
 ```
+
+`--llm` needs an Anthropic API key in your shell (`export ANTHROPIC_API_KEY=...`);
+nothing else reads or stores it.
 
 The first question about a player fetches their whole career (10–30 seconds).
 After that it's instant, and their current season refreshes once a day.
@@ -85,6 +91,131 @@ question ─► engine/parser.py ─► (category, params) ─► engine/handler
 
 Questions it can't parse are logged to `failed_queries` in `engine/handlers.py`.
 
+## Rules vs LLM text-to-SQL
+
+`engine/llm_sql.py` is a second way to answer: Claude (`claude-opus-5-5`, low
+effort) gets the schema, a page of notes on how the data is encoded, and six
+worked examples, and returns `{"sql": ..., "cannot_answer": ...}` as structured
+JSON. `ask_hybrid()` tries the rules first and calls the model only when they
+can't parse the question or their handler fails.
+
+The model's SQL is treated as untrusted:
+
+- the database is opened read-only (`mode=ro`) with `PRAGMA query_only`
+- a SQLite authorizer allows only SELECT and reads, so
+  `WITH x AS (...) DELETE ...`, `PRAGMA` and `ATTACH` are refused before they run
+- one statement per call, a 2-second timeout (progress handler), 200 rows max
+- a failed query goes back to the model once with the error; a write is never retried
+
+### How it's measured
+
+[`evals/questions.jsonl`](evals/questions.jsonl) has 116 questions: 6–9 in each
+of the 12 categories (some reworded so the rules don't recognize them), 20 that
+the database can answer but no rule category covers, and 9 that it can't
+(playoffs, salaries, players not loaded, "delete all of Curry's games").
+
+- **Correct means the right values, not the right SQL.** Each question stores
+  a hand-written gold query and the rows it returns on
+  [`evals/snapshot.db`](evals/snapshot.db), a frozen copy of the database, so
+  answers don't drift as games are played. An answer is right when those
+  values appear in it: counts exactly, averages within rounding, names without
+  accents, the pick first for "who leads..." questions, each player's numbers
+  next to his name for comparisons. For an unanswerable question, the right
+  answer is no answer.
+- **Same test for both.** The rules are graded on their answer sentence and
+  data; the LLM on the rows its SQL returned.
+- CI re-runs every gold query against the snapshot and checks the stored answers.
+
+```bash
+venv/bin/python -m evals.run --rules-only               # free, no API calls
+venv/bin/python -m evals.run                            # rules + Claude Opus 5.5 (paid API; reports cost per question)
+venv/bin/python -m evals.run --model claude-sonnet-5-5
+venv/bin/python -m evals.run --model ollama/qwen2.5-coder:3b   # free, runs locally
+venv/bin/python -m evals.run --report                   # tables from evals/results/
+```
+
+**Free local model.** Any model named `ollama/<name>` runs on a local
+[Ollama](https://ollama.com) server instead of the Anthropic API, with the same
+prompt, the same JSON output schema and the same SQL guards. Start the server,
+pull a model, then run the eval:
+
+```bash
+ollama serve &
+ollama pull qwen2.5-coder:3b
+venv/bin/python -m evals.run --model ollama/qwen2.5-coder:3b
+```
+
+### Results
+
+Measured with a free local model, `qwen2.5-coder:3b` on Ollama, running on a
+2020 Intel MacBook CPU. Claude hasn't been run yet; its row goes here when it
+is. Per-question results, including every generated query, are in
+[`evals/results/`](evals/results/).
+
+**Accuracy by category** (`ollama/qwen2.5-coder:3b`, 116 questions)
+
+| Category | n | Rules | LLM | Rules → LLM fallback |
+|---|---:|---:|---:|---:|
+| `player_averages` | 8 | 100% | 38% | 100% |
+| `game_count` | 9 | 100% | 78% | 100% |
+| `best_season` | 7 | 86% | 57% | 86% |
+| `best_games` | 8 | 88% | 62% | 88% |
+| `career_stat` | 7 | 100% | 100% | 100% |
+| `league_leaders` | 7 | 100% | 43% | 100% |
+| `compare_players` | 6 | 83% | 0% | 83% |
+| `record` | 7 | 86% | 57% | 86% |
+| `streak` | 6 | 100% | 100% | 100% |
+| `recent_games` | 7 | 100% | 0% | 100% |
+| `all_time` | 7 | 100% | 29% | 100% |
+| `all_nba` | 8 | 100% | 50% | 100% |
+| `beyond_rules` | 20 | 5% | 75% | 25% |
+| `unanswerable` | 9 | 89% | 100% | 89% |
+| **12 rule categories** | 87 | 95% | 52% | 95% |
+| **All** | 116 | 79% | 59% | 83% |
+
+**Latency and cost per question**
+
+| | p50 latency | p95 latency | cost / question | LLM calls |
+|---|---:|---:|---:|---:|
+| Rules | 31.4 ms | 197.4 ms | $0.0000 | 0 |
+| LLM | 5.0 s | 16.8 s | $0.0000 | 116 |
+| Rules → LLM fallback | 40.6 ms | 3.6 s | $0.0000 | 14 |
+
+**Why answers were wrong**
+
+| Failure | Rules | LLM | Rules → LLM fallback |
+|---|---:|---:|---:|
+| `wrong_value` | 13 | 37 | 15 |
+| `wrong_category` | 4 | 0 | 4 |
+| `no_parse` | 6 | 0 | 0 |
+| `empty_result` | 0 | 5 | 0 |
+| `sql_error` | 0 | 5 | 0 |
+| `answered_unanswerable` | 1 | 0 | 1 |
+
+**What this shows**
+
+- **The rules are precise inside their 12 categories (95%) and blind outside
+  them (1 of 20).** The 3B model is the reverse: 52% inside, but 75% on the
+  questions no category covers, and it declined all 9 unanswerable ones,
+  including "delete all of Curry's games".
+- **The fallback is right when it runs (12 of 14), but it rarely runs.** It
+  only fires when the rules can't parse a question or their handler errors.
+  The rules answered 18 questions confidently wrong, usually by matching a
+  category's keywords and answering a nearby question ("30+ points with zero
+  turnovers" gets a count of all 30-point games). The LLM got 12 of those
+  right but never saw them. Choosing the right approach per question would
+  score 108/116 (93%) instead of 83%, so the next gain is in **when** to fall
+  back, for example when the parse ignores words in the question, not in a
+  bigger model.
+- **The small model's misses are ones a larger model should mostly avoid:**
+  summing a stat over the 12-player `games` table instead of the league table,
+  dividing two players' averages instead of listing them, and querying a
+  column that doesn't exist.
+- Three LLM misses are arguably right: for "Curry's last 10 games" and
+  "Embiid's last 5 games" it returned the game logs rather than averages, and
+  for "all-time leaders in blocks" only the leader rather than the top 3.
+  They're counted wrong, since the gold answers expect the summary.
+
 ## Project layout
 
 | Path | What it is |
@@ -97,7 +228,11 @@ Questions it can't parse are logged to `failed_queries` in `engine/handlers.py`.
 | `engine/fetch.py` | on-demand nba_api fetching and daily refresh |
 | `engine/allnba.py`, `all-nba.csv` | All-NBA selections and player birthdates/career spans |
 | `seed.py`, `schema.py` | optional pre-loading; database path and `games` table |
+| `engine/llm_sql.py` | LLM text-to-SQL: prompt, read-only SQL runner, rules-first `ask_hybrid` |
+| `evals/questions.jsonl`, `evals/snapshot.db` | 116-question test set with gold SQL; frozen database it's scored on |
+| `evals/run.py`, `evals/scoring.py`, `evals/results/` | eval runner, value-based grading, saved per-question results |
 | `tests/test_parser.py` | parser and end-to-end answer tests |
+| `tests/test_llm_sql.py` | read-only guards, mocked-model retries/fallback, grading, gold-SQL checks |
 | `ARCHITECTURE.md` | current design and the planned discourse engine |
 
 ## Tests
@@ -106,8 +241,14 @@ Questions it can't parse are logged to `failed_queries` in `engine/handlers.py`.
 venv/bin/python tests/test_parser.py
 ```
 
-Tests never call nba_api (`COURTSIDE_OFFLINE=1`), so they're fast and run
-offline. Answer checks need a seeded `courtside.db`.
+```bash
+venv/bin/python tests/test_llm_sql.py
+```
+
+Tests never call nba_api (`COURTSIDE_OFFLINE=1`) or the Anthropic API (the
+model is a fake client), so they're fast and run offline. The parser's answer
+checks need a seeded `courtside.db`; the LLM and eval tests use the committed
+`evals/snapshot.db`.
 
 ## Teaching it new words
 

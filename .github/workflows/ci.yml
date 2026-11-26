@@ -17,3 +17,5 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Parser tests (offline, no seeded DB)
         run: python tests/test_parser.py
+      - name: LLM text-to-SQL and eval tests (mocked model, frozen snapshot DB)
+        run: python tests/test_llm_sql.py
