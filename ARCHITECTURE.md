@@ -16,20 +16,41 @@ question ─► engine/parser.py ─► (category, params) ─► engine/handler
 - **Frontend**: `server.py` serves `web/index.html` and a JSON API
   (`/api/ask?q=...`); `ask.py` is the terminal interface.
 
-## Next: discourse engine
+## Discourse engine
 
-The plan is to read what fans are actually arguing about (e.g. Reddit threads)
-and turn it into questions the query engine can answer. If fans are saying
-superstars are older than they used to be, it should generate "what's the
-average age of an All-NBA player over time?" and answer it with data.
+Reads fan discourse and turns it into answerable stat questions.
 
 ```
-Reddit ─► [discourse engine] ─► questions ─► [query engine] ─► courtside.db ─► answer ─► [frontend]
+ESPN/Reddit ─► engine/discourse.py ─► questions ─► [query engine] ─► courtside.db ─► answer ─► [frontend]
 ```
 
-Open questions:
+- **Sources**: Reddit r/nba via PRAW (set `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`),
+  falling back to the ESPN news API (no auth, always works).
+- **Theme detection** (`_THEMES` in `discourse.py`): pattern-based mapping of abstract
+  discourse to answerable questions, e.g. "medical advances / longevity" →
+  "Average career length of All-NBA players over time".
+- **Entity templates**: named players/teams/stats → comparison, averages, streak,
+  career, record, recent-games questions.
+- **Clustering**: two-pass — collect all candidates across posts, then group by question
+  text. Questions mentioned across multiple posts surface first (`mentions` field).
+  Question generation stays rule-based; no model needed.
+- **Frontend**: "Trending on r/nba" pill row in `web/index.html`, loaded async via
+  `/api/signals` (cached 15 min in `server.py`).
 
-- How to cluster threads into topics and pick which ones are answerable.
-- Whether question generation needs a model or can stay rule-based like the parser.
-- Logging questions the parser fails on (`failed_queries`) to decide which
-  categories to add next.
+## Failure logging
+
+Questions the parser can't handle are written to `failed_queries.jsonl` (gitignored)
+with a timestamp, category, and the raw query. Review it to decide which words or
+categories to add next:
+
+```bash
+cat failed_queries.jsonl | python3 -c "import sys,json; [print(json.loads(l)['query']) for l in sys.stdin]"
+```
+
+## What's next
+
+- Promote high-signal themes to the examples bar (currently static in `web/index.html`).
+- Use `failed_queries.jsonl` to find the most common unparseable patterns and add
+  categories or vocab entries for them.
+- For Reddit: fetch top comments on the highest-scoring threads (pass
+  `fetch_comments=True` to `fetch_signals`) for richer theme signal.

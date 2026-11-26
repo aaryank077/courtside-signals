@@ -260,38 +260,55 @@ def _make_questions(players, teams, stats, text):
 def fetch_signals(sort="hot", limit=25):
     """Scrape r/nba (or ESPN) and return generated stat questions.
 
+    Two-pass approach:
+      Pass 1 — collect every (question, post) candidate across all posts.
+      Pass 2 — cluster by question text, counting how many distinct posts
+               triggered the same question.  The most-mentioned questions
+               surface first; ties broken by post score.
+
     Each returned item:
         question      str   question the query engine can answer
         category      str   parse() category
-        source_title  str   originating headline / thread title
-        source_url    str   link back to the source
-        score         int   upvotes (Reddit) or 0 (ESPN fallback)
+        source_title  str   best-scoring post that triggered it
+        source_url    str   link back to that post
+        score         int   upvotes of the best-scoring source post
+        mentions      int   how many posts generated this question
+        source        str   "reddit" or "espn"
     """
     posts, source = _fetch_posts(sort, limit)
-    seen = set()
-    signals = []
 
+    # Pass 1: gather all candidates (duplicates allowed across posts)
+    candidates = []
     for post in posts:
         combined = " ".join(t for t in (post["title"], post["body"]) if t)
         players, teams, stats = _entities(combined)
-
         if not players and not teams and not stats:
             continue
-
         for question, _ in _make_questions(players, teams, stats, combined):
-            if question in seen:
-                continue
             cat, _ = parse(question)
-            if cat == "unknown":
-                continue
-            seen.add(question)
-            signals.append({
-                "question": question,
-                "category": cat,
-                "source_title": post["title"],
-                "source_url": post["url"],
-                "score": post["score"],
-                "source": source,
-            })
+            if cat != "unknown":
+                candidates.append((question, cat, post))
 
-    return sorted(signals, key=lambda s: -s["score"])
+    # Pass 2: cluster by question, keep the highest-scoring source post
+    clusters: dict = {}
+    for question, cat, post in candidates:
+        if question not in clusters:
+            clusters[question] = {"count": 0, "category": cat, "best": post}
+        clusters[question]["count"] += 1
+        if post["score"] > clusters[question]["best"]["score"]:
+            clusters[question]["best"] = post
+
+    signals = []
+    for question, cl in clusters.items():
+        best = cl["best"]
+        signals.append({
+            "question": question,
+            "category": cl["category"],
+            "source_title": best["title"],
+            "source_url": best["url"],
+            "score": best["score"],
+            "mentions": cl["count"],
+            "source": source,
+        })
+
+    return sorted(signals, key=lambda s: (-s["mentions"], -s["score"]))

@@ -1,3 +1,4 @@
 courtside.db
+failed_queries.jsonl
 venv/
 __pycache__/

@@ -13,6 +13,8 @@ Intent categories: best_season, game_count, player_averages, league_leaders,
 career_stat.
 """
 
+import datetime
+import json
 import math
 import sqlite3
 import unicodedata
@@ -26,8 +28,24 @@ from engine.fetch import (birthdate, ensure_all_time_leaders, ensure_league_stat
 from engine.vocab import CURRENT_SEASON
 
 DB_PATH = Path(__file__).resolve().parent.parent / "courtside.db"
+_FAILED_PATH = Path(__file__).resolve().parent.parent / "failed_queries.jsonl"
 
 failed_queries = []
+
+
+def _log_failed(category, query):
+    """Append to in-memory list and persist to failed_queries.jsonl."""
+    failed_queries.append((category, query))
+    entry = {
+        "ts": datetime.datetime.utcnow().isoformat(),
+        "category": category,
+        "query": query if isinstance(query, str) else query,
+    }
+    try:
+        with open(_FAILED_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except OSError:
+        pass
 
 # Stats that are summed over games, and percentages computed from them.
 # Column names can't be SQL parameters, so every stat is checked against these.
@@ -939,12 +957,12 @@ def follow_query(category, query):
     """Run the handler for an intent category on a dict of structured params."""
     handler = HANDLERS.get(category)
     if handler is None:
-        failed_queries.append((category, query))
+        _log_failed(category, query)
         return {"category": category, "table": None, "data": {},
                 "answer": "Sorry, we're not capable of answering that."}
     try:
         result = handler(query or {})
     except QueryError as e:
-        failed_queries.append((category, query))
+        _log_failed(category, query)
         return {"category": category, "answer": str(e), "table": None, "data": {}}
     return {"category": category, **result}
